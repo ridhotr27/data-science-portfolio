@@ -1,0 +1,47 @@
+customer_id,transaction_id,transaction_date,product,product_category,quantity,unit_price,discount,revenue,store,channel,city,gender,age,registration_date,email
+C001,T0001,2025-01-05,Coffee Beans,Food,2,85000,0,170000,Jakarta Central,Store,Jakarta,Female,29,2024-12-10,customer1@example.com
+C001,T0014,2025-02-12,Travel Mug,Home,1,125000,10000,115000,Jakarta Central,Online,Jakarta,Female,29,2024-12-10,customer1@example.com
+C001,T0027,2025-04-08,Coffee Beans,Food,3,85000,15000,240000,Jakarta Central,Online,Jakarta,Female,29,2024-12-10,customer1@example.com
+C001,T0040,2025-06-18,Drip Filters,Food,4,25000,0,100000,Jakarta Central,Store,Jakarta,Female,29,2024-12-10,customer1@example.com
+C002,T0002,2025-01-08,Notebook,Stationery,3,35000,0,105000,Bandung North,Store,Bandung,Male,35,2024-11-20,customer2@example.com
+C002,T0015,2025-03-02,Fountain Pen,Stationery,1,210000,20000,190000,Bandung North,Online,Bandung,Male,35,2024-11-20,customer2@example.com
+C002,T0028,2025-05-13,Notebook,Stationery,5,35000,10000,165000,Bandung North,Store,Bandung,Male,35,2024-11-20,customer2@example.com
+C002,T0041,2025-08-03,Desk Organizer,Home,1,180000,0,180000,Bandung North,Online,Bandung,Male,35,2024-11-20,customer2@example.com
+C003,T0003,2025-01-12,Running Shoes,Sports,1,780000,50000,730000,Surabaya East,Marketplace,Surabaya,Female,41,2025-01-01,customer3@example.com
+C003,T0016,2025-02-22,Sports Bottle,Sports,2,95000,0,190000,Surabaya East,Marketplace,Surabaya,Female,41,2025-01-01,customer3@example.com
+C003,T0029,2025-03-18,Fitness Band,Sports,1,420000,20000,400000,Surabaya East,Online,Surabaya,Female,41,2025-01-01,customer3@example.com
+C003,T0042,2025-07-09,Running Shoes,Sports,1,820000,0,820000,Surabaya East,Online,Surabaya,Female,41,2025-01-01,customer3@example.com
+C004,T0004,2025-01-15,Face Cleanser,Beauty,2,115000,0,230000,Medan City,Store,Medan,Female,24,2024-10-05,customer4@example.com
+C004,T0017,2025-04-11,Sunscreen,Beauty,2,145000,15000,275000,Medan City,Online,Medan,Female,24,2024-10-05,customer4@example.com
+C004,T0030,2025-09-21,Face Cleanser,Beauty,1,115000,0,115000,Medan City,Store,Medan,Female,24,2024-10-05,customer4@example.com
+C005,T0005,2025-01-20,Wireless Mouse,Electronics,1,325000,25000,300000,Jakarta South,Online,Jakarta,Male,32,2024-09-18,customer5@example.com
+C005,T0018,2025-02-18,Mechanical Keyboard,Electronics,1,950000,50000,900000,Jakarta South,Online,Jakarta,Male,32,2024-09-18,customer5@example.com
+C005,T0031,2025-04-25,USB Hub,Electronics,2,275000,0,550000,Jakarta South,Marketplace,Jakarta,Male,32,2024-09-18,customer5@example.com
+C005,T0043,2025-10-02,Monitor Stand,Electronics,1,450000,20000,430000,Jakarta South,Online,Jakarta,Male,32,2024-09-18,customer5@example.com
+C006,T0006,2025-02-03,Baby Blanket,Kids,2,165000,10000,320000,Bogor West,Store,Bogor,Female,38,2025-01-17,customer6@example.com
+C006,T0019,2025-03-16,Building Blocks,Kids,1,240000,0,240000,Bogor West,Online,Bogor,Female,38,2025-01-17,customer6@example.com
+C006,T0032,2025-06-05,Story Book,Kids,4,55000,20000,200000,Bogor West,Store,Bogor,Female,38,2025-01-17,customer6@example.com
+C007,T0007,2025-02-07,Green Tea,Food,5,45000,0,225000,Yogyakarta Center,Store,Yogyakarta,Male,46,2024-08-22,customer7@example.com
+C007,T0020,2025-05-20,Coffee Beans,Food,2,85000,0,170000,Yogyakarta Center,Store,Yogyakarta,Male,46,2024-08-22,customer7@example.com
+C007,T0033,2025-11-11,Green Tea,Food,3,45000,5000,130000,Yogyakarta Center,Online,Yogyakarta,Male,46,2024-08-22,customer7@example.com
+C008,T0008,2025-02-14,Handbag,Fashion,1,680000,80000,600000,Semarang Mall,Marketplace,Semarang,Female,27,2025-02-01,customer8@example.com
+C008,T0021,2025-03-27,Silk Scarf,Fashion,2,225000,25000,425000,Semarang Mall,Online,Semarang,Female,27,2025-02-01,customer8@example.com
+C008,T0034,2025-05-30,Handbag,Fashion,1,720000,20000,700000,Semarang Mall,Store,Semarang,Female,27,2025-02-01,customer8@example.com
+C008,T0044,2025-12-05,Sunglasses,Fashion,1,390000,0,390000,Semarang Mall,Online,Semarang,Female,27,2025-02-01,customer8@example.com
+C009,T0009,2025-03-04,Blender,Home,1,650000,50000,600000,Makassar Point,Store,Makassar,Male,52,2024-07-14,customer9@example.com
+C009,T0022,2025-07-22,Storage Box,Home,4,85000,20000,320000,Makassar Point,Marketplace,Makassar,Male,52,2024-07-14,customer9@example.com
+C010,T0010,2025-03-10,Yoga Mat,Sports,1,310000,10000,300000,Denpasar Square,Online,Denpasar,Female,31,2025-03-01,customer10@example.com
+C010,T0023,2025-04-19,Sports Bottle,Sports,2,95000,0,190000,Denpasar Square,Online,Denpasar,Female,31,2025-03-01,customer10@example.com
+C010,T0035,2025-06-28,Yoga Mat,Sports,1,310000,0,310000,Denpasar Square,Store,Denpasar,Female,31,2025-03-01,customer10@example.com
+C010,T0045,2025-12-18,Fitness Band,Sports,1,420000,20000,400000,Denpasar Square,Online,Denpasar,Female,31,2025-03-01,customer10@example.com
+C011,T0011,2025-04-02,Desk Lamp,Home,1,275000,0,275000,Malang Town,Store,Malang,Male,44,2025-03-21,customer11@example.com
+C011,T0024,2025-08-16,Notebook,Stationery,6,35000,10000,200000,Malang Town,Store,Malang,Male,44,2025-03-21,customer11@example.com
+C012,T0012,2025-04-15,Serum,Beauty,2,195000,20000,370000,Palembang Plaza,Online,Palembang,Female,36,2025-04-01,customer12@example.com
+C012,T0025,2025-05-25,Sunscreen,Beauty,3,145000,35000,400000,Palembang Plaza,Marketplace,Palembang,Female,36,2025-04-01,customer12@example.com
+C012,T0036,2025-07-17,Face Cleanser,Beauty,2,115000,0,230000,Palembang Plaza,Online,Palembang,Female,36,2025-04-01,customer12@example.com
+C013,T0013,2025-05-01,Mechanical Keyboard,Electronics,1,950000,100000,850000,Tangerang Hub,Online,Tangerang,Male,28,2025-04-20,customer13@example.com
+C013,T0026,2025-06-12,Wireless Mouse,Electronics,2,325000,25000,625000,Tangerang Hub,Marketplace,Tangerang,Male,28,2025-04-20,customer13@example.com
+C013,T0037,2025-08-29,USB Hub,Electronics,1,275000,0,275000,Tangerang Hub,Online,Tangerang,Male,28,2025-04-20,customer13@example.com
+C014,T0038,2025-09-07,Travel Mug,Home,2,125000,0,250000,Jakarta Central,Store,Jakarta,Female,55,2025-08-25,customer14@example.com
+C015,T0039,2025-10-14,Running Shoes,Sports,1,820000,70000,750000,Bandung North,Marketplace,Bandung,Male,22,2025-10-01,customer15@example.com
+C016,T0046,2025-12-22,Coffee Beans,Food,2,85000,0,170000,Surabaya East,Online,Surabaya,Female,33,2025-12-10,customer16@example.com
