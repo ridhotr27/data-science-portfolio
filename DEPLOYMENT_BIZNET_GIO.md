@@ -1,39 +1,40 @@
-# Deploying to a Biznet Gio Ubuntu VPS
+# Biznet Gio Deployment Runbook
 
-This runbook prepares and operates the portfolio on a single Ubuntu VPS with Docker Compose, GitLab Container Registry, GitLab CI/CD, and Caddy-managed HTTPS. It does not provision or deploy a VPS automatically.
+> **Deployment status: disabled.** GitHub Actions tests the application and publishes images to GitHub Container Registry (GHCR), but it does not connect to, provision, or update a Biznet Gio VPS. The instructions below are retained for a future, separately approved manual deployment.
 
-## 1. Recommended VPS specification
+## Current automation boundary
 
-Start with:
+On pushes to `main`, `.github/workflows/ci.yml`:
+
+1. runs the FastAPI test suite;
+2. builds the React/Vite frontend;
+3. builds the production frontend and backend images;
+4. publishes commit-SHA and `latest` tags to GHCR.
+
+It intentionally has no deployment job, GitHub environment, SSH key, VPS address, production domain, remote Docker command, or public health check. A successful workflow run means the code and images passed CI; it does not mean production was deployed.
+
+Published image names:
+
+```text
+ghcr.io/ridhotr27/data-science-portfolio-frontend:<commit-sha>
+ghcr.io/ridhotr27/data-science-portfolio-backend:<commit-sha>
+```
+
+Use immutable commit-SHA tags for any future deployment. The `latest` aliases are convenient for inspection but should not be used as rollback references.
+
+## Recommended future VPS specification
 
 - Ubuntu 22.04 LTS or 24.04 LTS
 - 2 vCPU
 - 4 GB RAM
 - 30 GB SSD
-- A public IPv4 address
+- Public IPv4 address
 
-The recommendation allows headroom for Pandas/SciPy imports, image pulls, and bounded analytics workloads. Monitor real memory and CPU before resizing. XGBoost is disabled, and the application is deliberately limited to one backend worker because sessions are process-local.
+The backend is limited to one worker because dataset sessions are process-local. Uploaded datasets and cached results remain in memory and disappear whenever the backend restarts.
 
-## 2. DNS and domain preparation
+## Server preparation
 
-Before requesting HTTPS certificates:
-
-1. Choose a domain such as `portfolio.example.com`.
-2. Create an `A` record pointing to the VPS IPv4 address.
-3. Add an `AAAA` record only if the VPS has correctly routed public IPv6.
-4. Remove stale/conflicting records.
-5. Wait for DNS propagation and verify from another network:
-
-```bash
-dig +short portfolio.example.com A
-dig +short portfolio.example.com AAAA
-```
-
-Caddy certificate issuance will fail until the public domain reaches the VPS on ports 80 and 443.
-
-## 3. Initial Ubuntu preparation
-
-Log in using the initial provider account, update packages, and create a dedicated deployment user:
+These steps are **not authorized by the current GitHub Actions workflow** and must be run manually only after a separate deployment approval.
 
 ```bash
 sudo apt update
@@ -42,9 +43,7 @@ sudo adduser deploy
 sudo usermod -aG sudo deploy
 ```
 
-Copy an administrator SSH public key to `/home/deploy/.ssh/authorized_keys`, then verify a new SSH session before changing SSH policy.
-
-Recommended SSH hardening in `/etc/ssh/sshd_config.d/99-portfolio.conf`:
+Configure and test key-based SSH access before disabling password authentication. Recommended SSH policy:
 
 ```text
 PermitRootLogin no
@@ -52,18 +51,16 @@ PasswordAuthentication no
 PubkeyAuthentication yes
 ```
 
-Validate and reload without closing the current session:
+Validate before reloading:
 
 ```bash
 sudo sshd -t
 sudo systemctl reload ssh
 ```
 
-Do not disable password authentication until key-based login has been tested successfully.
+## Firewall and DNS
 
-## 4. Firewall and networking
-
-Allow SSH before enabling UFW:
+Allow SSH before enabling UFW, then expose only the reverse proxy:
 
 ```bash
 sudo ufw allow OpenSSH
@@ -74,9 +71,9 @@ sudo ufw enable
 sudo ufw status verbose
 ```
 
-Also configure the Biznet Gio security-group/firewall controls, if enabled, for the same ports. Do not expose ports 8000 or 8080. Docker publishes only Caddy's 80/443 mappings.
+Apply equivalent Biznet Gio firewall rules. Never expose backend port 8000 or frontend port 8080. Create a domain `A` record pointing to the VPS; add `AAAA` only when IPv6 is correctly routed.
 
-## 5. Install Docker Engine and Compose
+## Docker installation
 
 Use Docker's official Ubuntu repository:
 
@@ -96,105 +93,47 @@ sudo systemctl enable --now docker
 sudo usermod -aG docker deploy
 ```
 
-Log out and back in so group membership is refreshed, then verify:
+Membership in the `docker` group is effectively root-level access. Restrict the deployment account and its SSH keys.
 
-```bash
-docker version
-docker compose version
-docker run --rm hello-world
-```
-
-Membership in the `docker` group is effectively root-level access. Limit the deployment account and protect its SSH key accordingly.
-
-## 6. Prepare the deployment directory
-
-As the `deploy` user:
+## Deployment directory
 
 ```bash
 sudo install -d -o deploy -g deploy -m 700 /opt/ridho-portfolio
-cd /opt/ridho-portfolio
-mkdir -m 700 deploy
+sudo install -d -o deploy -g deploy -m 700 /opt/ridho-portfolio/deploy
 ```
 
-The final server directory contains only:
+The server requires only:
 
 ```text
 /opt/ridho-portfolio/
 ├── .env.production
-├── .env.production.previous   # created after the first CI update
 ├── docker-compose.prod.yml
 └── deploy/Caddyfile
 ```
 
-Application source code is not required on the VPS because GitLab builds the images.
+## GHCR access
 
-## 7. GitLab Container Registry access
+The images may initially be private even when the source repository is public. Either make each GHCR package public in GitHub package settings or authenticate the VPS with a fine-grained/read-only credential that can read packages. Do not reuse `GITHUB_TOKEN` outside GitHub Actions.
 
-Create a GitLab Deploy Token with `read_registry` only. Store its username/password as protected, masked CI/CD variables:
-
-- `REGISTRY_DEPLOY_USER`
-- `REGISTRY_DEPLOY_PASSWORD`
-
-For a manual first deployment, authenticate without placing the password in shell history:
+Authenticate interactively without placing a token in shell history:
 
 ```bash
-printf '%s' "$REGISTRY_DEPLOY_PASSWORD" | docker login registry.gitlab.com \
-  --username "$REGISTRY_DEPLOY_USER" --password-stdin
+export CR_PAT='REPLACE_WITH_READ_PACKAGES_TOKEN'
+printf '%s' "$CR_PAT" | docker login ghcr.io --username ridhotr27 --password-stdin
+unset CR_PAT
 ```
 
-Credentials are stored in the deployment user's Docker configuration. Review access and rotate the token periodically.
+Review and rotate registry credentials periodically. Never store a token in `.env.production`.
 
-## 8. Deployment SSH key
+## Production environment
 
-Create a dedicated CI deployment key on a trusted workstation:
-
-```bash
-ssh-keygen -t ed25519 -C gitlab-portfolio-deploy -f gitlab-portfolio-deploy
-```
-
-Append only the public key to `/home/deploy/.ssh/authorized_keys`. Store the private key as a protected **file-type** variable named `SSH_PRIVATE_KEY` when possible. The pipeline also accepts key text in that variable, although GitLab masking rules can make multiline values impractical.
-
-Capture the server host key from a trusted network and verify its fingerprint through the provider console:
-
-```bash
-ssh-keyscan -H YOUR_VPS_HOSTNAME
-```
-
-Store the verified output as protected variable `SSH_KNOWN_HOSTS`. The pipeline intentionally does not perform an unverified runtime `ssh-keyscan`.
-
-## 9. Required GitLab CI/CD variables
-
-Configure these under **Settings → CI/CD → Variables**. Mark production secrets protected and masked where GitLab permits.
-
-| Variable | Example/purpose | Protected | Secret |
-|---|---|---:|---:|
-| `SSH_PRIVATE_KEY` | Dedicated deploy private key | Yes | Yes |
-| `SSH_KNOWN_HOSTS` | Verified host-key line | Yes | No |
-| `DEPLOY_HOST` | VPS hostname or IP | Yes | No |
-| `DEPLOY_USER` | `deploy` | Yes | No |
-| `DEPLOY_PATH` | `/opt/ridho-portfolio` | Yes | No |
-| `PRODUCTION_DOMAIN` | `portfolio.example.com` | Yes | No |
-| `ACME_EMAIL` | Certificate-notification email | Yes | No |
-| `REGISTRY_DEPLOY_USER` | Read-only deploy-token username | Yes | Yes |
-| `REGISTRY_DEPLOY_PASSWORD` | Read-only deploy-token secret | Yes | Yes |
-| `DATASET_TTL_SECONDS` | Optional, default `900` | Yes | No |
-| `MAX_DATASET_SESSIONS` | Optional, default `3` | Yes | No |
-| `UPLOAD_RATE_LIMIT` | Optional, default `20` | Yes | No |
-| `UPLOAD_RATE_WINDOW_SECONDS` | Optional, default `60` | Yes | No |
-
-GitLab automatically provides `CI_REGISTRY`, `CI_REGISTRY_IMAGE`, `CI_REGISTRY_USER`, `CI_REGISTRY_PASSWORD`, and `CI_COMMIT_SHA` to jobs where the Container Registry is enabled.
-
-Protect the `main` branch. The deployment rule requires both the default branch and `CI_COMMIT_REF_PROTECTED=true`.
-
-## 10. Production environment file
-
-The template is `.env.production.example`. Production uses:
+Copy `.env.production.example` to `.env.production` on the server, then replace the domain, email, and `COMMIT_SHA` placeholders:
 
 ```dotenv
 DOMAIN=portfolio.example.com
 ACME_EMAIL=admin@example.com
-FRONTEND_IMAGE=registry.gitlab.com/namespace/project/frontend:COMMIT_SHA
-BACKEND_IMAGE=registry.gitlab.com/namespace/project/backend:COMMIT_SHA
+FRONTEND_IMAGE=ghcr.io/ridhotr27/data-science-portfolio-frontend:COMMIT_SHA
+BACKEND_IMAGE=ghcr.io/ridhotr27/data-science-portfolio-backend:COMMIT_SHA
 ALLOWED_ORIGINS=https://portfolio.example.com
 DATASET_TTL_SECONDS=900
 MAX_DATASET_SESSIONS=3
@@ -204,164 +143,77 @@ ENABLE_XGBOOST=false
 VITE_ENABLE_XGBOOST=false
 ```
 
-The CI deploy job generates this file with exact SHA-tagged images and uploads it with mode-restricted handling. Never commit `.env.production`.
+Protect the file:
 
-## 11. Initial deployment
+```bash
+chmod 600 /opt/ridho-portfolio/.env.production
+```
 
-The preferred first deployment is a protected `main` pipeline after DNS, Docker, variables, directory ownership, and registry access are ready.
+## Future manual deployment
 
-For a controlled manual first deployment:
-
-1. Obtain `docker-compose.prod.yml`, `deploy/Caddyfile`, and an edited `.env.production` on the server.
-2. Authenticate to the GitLab registry.
-3. Validate and pull:
+No part of this procedure is run by GitHub Actions:
 
 ```bash
 cd /opt/ridho-portfolio
-chmod 600 .env.production
 docker compose --env-file .env.production -f docker-compose.prod.yml config
 docker compose --env-file .env.production -f docker-compose.prod.yml pull
-docker compose --env-file .env.production -f docker-compose.prod.yml up -d --no-build
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --no-build --remove-orphans
+docker compose --env-file .env.production -f docker-compose.prod.yml ps
 ```
 
-4. Inspect startup and certificate issuance:
+Caddy requests and renews HTTPS certificates after DNS and ports 80/443 are correct. Verify manually:
 
 ```bash
-docker compose --env-file .env.production -f docker-compose.prod.yml ps
-docker compose --env-file .env.production -f docker-compose.prod.yml logs caddy --tail=200
-curl -fsS https://portfolio.example.com/api/health
-```
-
-Do not use placeholder domains or image references from the example file.
-
-## 12. Automatic deployments
-
-The GitLab pipeline performs:
-
-1. backend tests and frontend build;
-2. separate immutable frontend/backend image builds;
-3. registry pushes tagged with the commit SHA;
-4. protected-main SSH deployment;
-5. Compose pull and rolling service recreation;
-6. public frontend and API verification with retries.
-
-Compose recreates only services whose image reference changed. Caddy remains running when its configuration and image are unchanged, reducing avoidable public endpoint downtime. Backend sessions are still lost whenever the backend container is replaced.
-
-## 13. Health checks and monitoring
-
-Inspect service and resource health:
-
-```bash
-cd /opt/ridho-portfolio
-docker compose --env-file .env.production -f docker-compose.prod.yml ps
-docker stats --no-stream
 curl -fsS https://portfolio.example.com/
 curl -fsS https://portfolio.example.com/api/health
 ```
 
-The Compose health checks cover Nginx, FastAPI, and Caddy configuration validity. GitLab verifies the public paths after deployment. This is basic availability checking, not full observability. Add an external uptime monitor for the public HTTPS URL if desired.
-
-Caddy rejects request bodies above 6 MB before proxying. FastAPI separately enforces the documented 5 MB dataset limit, row/column limits, bounded session capacity, and process-local upload throttling.
-
-## 14. Logs
+## Logs and health
 
 ```bash
-docker compose --env-file .env.production -f docker-compose.prod.yml logs -f --tail=200
-docker compose --env-file .env.production -f docker-compose.prod.yml logs backend --tail=200
-docker compose --env-file .env.production -f docker-compose.prod.yml logs caddy --tail=200
+docker compose --env-file .env.production -f docker-compose.prod.yml ps
+docker compose --env-file .env.production -f docker-compose.prod.yml logs --tail=200
+docker stats --no-stream
 ```
 
-Docker JSON logs rotate at 10 MB with three files per service. Caddy emits structured JSON access logs to stdout. Uploaded dataset contents are not intentionally logged.
+Compose health checks cover Nginx, FastAPI, and Caddy configuration validity. They do not replace external availability monitoring. Caddy rejects request bodies above 6 MB; FastAPI separately enforces the 5 MB dataset limit and bounded session capacity.
 
-## 15. Updating containers manually
+## Manual update and rollback
 
-Edit only the image SHA tags in `.env.production`, then:
+Before an update, save the active environment file:
 
 ```bash
-docker compose --env-file .env.production -f docker-compose.prod.yml pull
-docker compose --env-file .env.production -f docker-compose.prod.yml up -d --no-build --remove-orphans
-docker image prune -f
+cp .env.production .env.production.previous
+chmod 600 .env.production.previous
 ```
 
-Confirm both public endpoints after every update.
+Set both image references to the new commit SHA, then run `docker compose pull` and `up -d`. To roll back, restore `.env.production.previous` or set both references to a known-good SHA and repeat those commands.
 
-## 16. Rollback
+Rollback restores container versions only. It cannot restore in-memory datasets lost during container replacement.
 
-Before CI uploads a new environment file, it copies the current file to `.env.production.previous`. To roll back:
+## Troubleshooting
 
-```bash
-cd /opt/ridho-portfolio
-cp .env.production .env.production.failed
-cp .env.production.previous .env.production
-chmod 600 .env.production
-docker compose --env-file .env.production -f docker-compose.prod.yml pull
-docker compose --env-file .env.production -f docker-compose.prod.yml up -d --no-build --remove-orphans
-curl -fsS https://portfolio.example.com/api/health
-```
+- **Certificate failure:** verify DNS, Biznet firewall, UFW, and Caddy logs.
+- **Registry pull denied:** verify GHCR package visibility or the token's `read:packages` access.
+- **API 502:** inspect backend health and OOM state; confirm the image supports the VPS architecture.
+- **CORS error:** ensure `ALLOWED_ORIGINS` exactly equals the public HTTPS origin without a trailing slash.
+- **SPA 404:** verify Caddy routes non-API requests to `frontend:8080` and the Nginx SPA fallback is present.
+- **Session disappeared:** this is expected after expiration, restart, update, or capacity pressure.
 
-Alternatively, edit `FRONTEND_IMAGE` and `BACKEND_IMAGE` to a known-good commit SHA from the GitLab Container Registry. Rollback restores application images, not in-memory datasets from before the update.
+## Enablement checklist for a future deployment
 
-## 17. Backup and recovery
+- [ ] Separate deployment approval completed
+- [ ] VPS provisioned and patched
+- [ ] SSH access and host fingerprints verified
+- [ ] UFW and provider firewall reviewed
+- [ ] DNS resolves to the VPS
+- [ ] Docker Engine and Compose installed
+- [ ] GHCR package visibility or read-only authentication configured
+- [ ] Exact commit-SHA image references selected
+- [ ] Production environment file reviewed and protected
+- [ ] Compose configuration validated on the VPS
+- [ ] Manual rollback tested
+- [ ] External uptime monitoring configured
+- [ ] Only non-confidential acceptance-test data used
 
-Application uploads are deliberately ephemeral and are not backed up. Persist and back up only operational state:
-
-- Docker volume `ridho-portfolio_caddy_data` contains Caddy certificates/account state.
-- `.env.production` and `.env.production.previous` contain deployment configuration but no registry password.
-- GitLab Container Registry retains image history according to its cleanup policy.
-
-If Caddy state is lost, it can request new certificates, subject to certificate-authority rate limits. Avoid repeatedly deleting its volumes.
-
-## 18. Troubleshooting
-
-### Certificate not issued
-
-- Confirm `A`/`AAAA` records resolve to the VPS.
-- Confirm provider firewall and UFW allow TCP 80/443.
-- Remove an invalid `AAAA` record if IPv6 is not routed.
-- Inspect `docker compose ... logs caddy`.
-
-### API returns 502
-
-- Run `docker compose ... ps` and inspect backend health/logs.
-- Confirm the backend image supports the VPS CPU architecture.
-- Confirm memory limits are not causing OOM termination (`docker inspect`).
-
-### Browser CORS error
-
-- `ALLOWED_ORIGINS` must exactly equal `https://$DOMAIN`.
-- Recreate the backend after changing `.env.production`.
-- Do not include a trailing slash in the origin.
-
-### SPA route returns 404
-
-- Confirm the frontend image contains `deploy/nginx.conf`.
-- Confirm Caddy proxies non-API paths to `frontend:8080`.
-- Rebuild the frontend image rather than editing the running container.
-
-### Registry pull denied
-
-- Confirm the deploy token has `read_registry`.
-- Re-run `docker login` as the same user running Compose.
-- Confirm exact project image paths and SHA tags exist.
-
-### Upload session disappears
-
-This is expected after 15 minutes of inactivity, backend restart, container update, or capacity pressure. The backend is intentionally single-worker and process-local. Re-upload the source file.
-
-## 19. Pre-deployment checklist
-
-- [ ] VPS created and updated
-- [ ] Deployment SSH key verified
-- [ ] Root/password SSH policy reviewed safely
-- [ ] Docker Engine and Compose v2 installed
-- [ ] UFW and provider firewall allow only SSH, 80, and 443 as required
-- [ ] DNS resolves correctly
-- [ ] GitLab Container Registry enabled
-- [ ] Protected deploy token created
-- [ ] Protected `main` branch configured
-- [ ] All GitLab CI/CD variables configured
-- [ ] Production Compose config validated
-- [ ] Test/build pipeline passes
-- [ ] No confidential data used for acceptance testing
-
-Actual VPS provisioning, DNS changes, GitLab variable creation, and production deployment remain manual and were not performed by this repository change.
+Until every applicable item is complete, Biznet Gio deployment remains disabled.

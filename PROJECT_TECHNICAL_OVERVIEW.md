@@ -337,7 +337,7 @@ Response models are generally implicit dictionaries rather than declared FastAPI
 
 Local topology is two processes: Vite on port 5173 and Uvicorn on port 8000. Production topology is Caddy on public ports 80/443, an unprivileged Nginx frontend on an internal network, and one non-root Uvicorn backend worker on that same internal network. Environment variable names include `VITE_API_URL`, `VITE_ENABLE_XGBOOST`, `FRONTEND_ORIGIN`, `ALLOWED_ORIGINS`, `DATASET_TTL_SECONDS`, `MAX_DATASET_SESSIONS`, `UPLOAD_RATE_LIMIT`, `UPLOAD_RATE_WINDOW_SECONDS`, and `ENABLE_XGBOOST`. No secret values were inspected or reproduced.
 
-Production assets now include separate multi-stage/non-root frontend and backend images, a resource-bounded Compose stack, private application networking, health checks, rotating Docker logs, Caddy automatic TLS/security headers, and a GitLab pipeline that tests, builds immutable commit-tagged images, deploys only from the protected default branch, and verifies public health paths. `DEPLOYMENT_BIZNET_GIO.md` documents provisioning, DNS, firewalling, deploy tokens, CI variables, updates, rollback, backups, and troubleshooting. Metrics, tracing, alerting, application-state backup, Kubernetes, and Terraform remain absent. These files prepare a deployment; they do not prove that a VPS has been provisioned or that production is live.
+Production assets include separate multi-stage/non-root frontend and backend images, a resource-bounded Compose stack, private application networking, health checks, rotating Docker logs, and Caddy automatic TLS/security headers. GitHub Actions runs backend tests and the frontend build, then publishes immutable commit-tagged images plus `latest` aliases to GHCR after successful pushes to `main`. Biznet Gio deployment is deliberately disabled: there is no deployment job, SSH access, or public endpoint verification in the workflow. Metrics, tracing, alerting, application-state backup, Kubernetes, and Terraform remain absent.
 
 Horizontal scaling is incompatible with in-memory sessions/jobs without sticky routing and still would not share state. Multiple worker processes would split datasets from jobs. A static host must route all portfolio paths to `index.html`; this rewrite configuration is absent. CORS is exact-origin restricted but defaults to local development.
 
@@ -395,7 +395,7 @@ The design is suitable for small, trusted, single-process local use. Scaling req
 | API contracts | Partial | Pydantic requests | Mostly no response models/versioning | Medium | Add versioned response schemas |
 | Authentication | Not implemented | No auth dependency/middleware | Public access unsafe | Critical | Add identity, ownership, authorization |
 | Database/storage | Not implemented | In-memory dicts only | Restart/data loss and no multi-worker support | High | Add persistent metadata/object/model storage |
-| Deployment/operations | Prepared, not deployed | Dockerfiles, Compose, Caddy, GitLab CI, Biznet Gio runbook | No live validation, metrics, tracing, or alerting | Medium–High | Execute runbook, validate production, then add monitoring |
+| Deployment/operations | Container publishing only | Dockerfiles, Compose, Caddy, GitHub Actions, GHCR, Biznet Gio runbook | Automated VPS deployment disabled; no live monitoring | Medium–High | Complete a separate deployment review before enabling VPS automation |
 | Frontend tests | Not implemented | No test dependencies/files | Regressions/accessibility unverified | Medium | Add component and browser E2E tests |
 | Backend tests | Implemented baseline | 22 passing tests | Narrow edge/concurrency coverage | Medium | Coverage gates and adversarial cases |
 
@@ -481,7 +481,7 @@ Maintenance should keep Node and Python lock/pin files current together, run bac
 
 - all repository-owned source files under `src/` and `backend/app/`;
 - all nine backend test modules;
-- `README.md`, `DEPLOYMENT_BIZNET_GIO.md`, Dockerfiles, Compose/Caddy/Nginx configuration, `.gitlab-ci.yml`, environment examples, and `.gitignore`;
+- `README.md`, `DEPLOYMENT_BIZNET_GIO.md`, Dockerfiles, Compose/Caddy/Nginx configuration, `.github/workflows/ci.yml`, environment examples, and `.gitignore`;
 - `package.json`, `package-lock.json`, `backend/requirements.txt`, `index.html`;
 - repository file/directory inventory, generated artifact presence, sample-data presence;
 - endpoint decorators, environment/config usages, unused configuration markers, and dependency versions;

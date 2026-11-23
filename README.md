@@ -36,7 +36,7 @@ EDA insights and Customer 360 recommendations are deterministic calculations and
 - **Data and ML:** Pandas, Polars, NumPy, SciPy, scikit-learn, XGBoost
 - **Files:** CSV, XLSX, OpenPyXL
 - **Testing:** Pytest, HTTPX/FastAPI TestClient
-- **Infrastructure:** Docker, Docker Compose, unprivileged Nginx, Caddy, GitLab CI/CD
+- **Infrastructure:** Docker, Docker Compose, unprivileged Nginx, Caddy, GitHub Actions, GHCR
 
 Dependency versions are pinned in `backend/requirements.txt` and locked in `package-lock.json`.
 
@@ -59,7 +59,7 @@ Dependency versions are pinned in `backend/requirements.txt` and locked in `pack
 ├── sample_data/                 # Anonymized Customer 360 demonstration CSV
 ├── Dockerfile.frontend          # Multi-stage Vite/Nginx image
 ├── docker-compose.prod.yml      # Production frontend/backend/Caddy stack
-├── .gitlab-ci.yml               # Test, build, deploy, and verify pipeline
+├── .github/workflows/ci.yml     # Tests, builds, and GHCR publishing
 ├── .env.production.example      # Production configuration template
 ├── DEPLOYMENT_BIZNET_GIO.md     # Complete VPS deployment runbook
 └── PROJECT_TECHNICAL_OVERVIEW.md
@@ -151,18 +151,17 @@ docker compose --env-file .env.production -f docker-compose.prod.yml down
 
 Only Caddy publishes ports 80 and 443. Frontend and backend communicate on a private Docker network. Caddy obtains and renews HTTPS certificates automatically after DNS and firewall configuration are correct.
 
-See [DEPLOYMENT_BIZNET_GIO.md](DEPLOYMENT_BIZNET_GIO.md) for server preparation, CI/CD variables, first deployment, rollback, monitoring, and troubleshooting.
+See [DEPLOYMENT_BIZNET_GIO.md](DEPLOYMENT_BIZNET_GIO.md) for the currently disabled deployment posture and future manual deployment preparation.
 
-## GitLab CI/CD
+## GitHub Actions and GHCR
 
-`.gitlab-ci.yml` defines four stages:
+`.github/workflows/ci.yml` runs for pushes and pull requests targeting `main`:
 
-1. **Test:** run backend Pytest and a frontend production build.
-2. **Build:** build frontend/backend images, tag them with `CI_COMMIT_SHA`, and push to the GitLab Container Registry.
-3. **Deploy:** only a protected default branch can update production through SSH. Compose pulls the exact SHA tags.
-4. **Verify:** retry the public frontend and `/api/health`; fail the pipeline if either remains unavailable.
+1. **Backend tests:** install pinned Python dependencies and run Pytest on Python 3.12.
+2. **Frontend build:** install the npm lockfile and run the Vite production build on Node.js 20.
+3. **Container publishing:** after both checks pass on a push to `main`, build the frontend and backend images and publish commit-SHA and `latest` tags to GHCR.
 
-Tests run for all pipelines. Image build jobs run for branch pipelines. Production deploy/verify jobs require the protected default branch plus protected GitLab variables. A commit to `main` triggers deployment only after those prerequisites are configured.
+Images are published as `ghcr.io/ridhotr27/data-science-portfolio-frontend` and `ghcr.io/ridhotr27/data-science-portfolio-backend`. Publishing uses the repository-scoped `GITHUB_TOKEN`; no personal registry credential is required. The workflow contains no deployment job, SSH access, Biznet Gio credentials, or production environment. Pushing to `main` does **not** deploy the application.
 
 ## Testing and validation
 
