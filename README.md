@@ -212,3 +212,5 @@ The local stack publishes only `127.0.0.1:8088`; it does not request certificate
 Data Scientist & Data Engineer
 
 [ridho.trivonanda@gmail.com](mailto:ridho.trivonanda@gmail.com)
+
+[GitHub repository](https://github.com/ridhotr27/data-science-portfolio)
