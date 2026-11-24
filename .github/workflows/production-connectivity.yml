@@ -41,9 +41,49 @@ jobs:
           install -m 0600 /dev/null "$HOME/.ssh/known_hosts"
           printf '%s\n' "$DEPLOY_HOST_KEYS" > "$HOME/.ssh/known_hosts"
 
-      - name: Verify forced-command connectivity
+      - name: Run safe SSH connectivity diagnostics
         run: |
           set -euo pipefail
+
+          diagnostics_ok=true
+
+          if getent ahosts "$DEPLOY_HOST" >/dev/null 2>&1; then
+            echo "dns_resolution=success"
+          else
+            echo "dns_resolution=failure"
+            diagnostics_ok=false
+          fi
+
+          if timeout 10 bash -c 'exec 3<>/dev/tcp/"$1"/"$2"' \
+            _ "$DEPLOY_HOST" "$DEPLOY_PORT" 2>/dev/null; then
+            echo "tcp_connectivity=success"
+          else
+            echo "tcp_connectivity=failure"
+            diagnostics_ok=false
+          fi
+
+          if ssh-keygen -y -P '' -f "$HOME/.ssh/portfolio_deploy" \
+            >/dev/null 2>&1; then
+            echo "private_key_parse=success"
+          else
+            echo "private_key_parse=failure"
+            diagnostics_ok=false
+          fi
+
+          if ssh-keygen -l -f "$HOME/.ssh/known_hosts" \
+            >/dev/null 2>&1; then
+            echo "known_hosts_structure=valid"
+          else
+            echo "known_hosts_structure=invalid"
+            diagnostics_ok=false
+          fi
+
+          if [[ "$diagnostics_ok" != true ]]; then
+            echo "ssh_exit_status=not_run"
+            echo "ssh_failure_category=preflight"
+            exit 1
+          fi
+
           set +e
           output="$(
             ssh -T \
@@ -60,5 +100,39 @@ jobs:
           status=$?
           set -e
 
-          test "$status" -eq 64
-          test "$output" = "Only the portfolio deployment command is allowed."
+          echo "ssh_exit_status=$status"
+
+          if [[ "$status" -eq 64 ]] &&
+            [[ "$output" == "Only the portfolio deployment command is allowed." ]]; then
+            echo "ssh_failure_category=forced-command-rejection"
+            echo "connectivity_test=success"
+            exit 0
+          fi
+
+          if grep -Eqi \
+            'Could not resolve hostname|Name or service not known|Connection timed out|Connection refused|No route to host|Network is unreachable' \
+            <<<"$output"; then
+            category=network
+          elif grep -Eqi \
+            'Host key verification failed|REMOTE HOST IDENTIFICATION HAS CHANGED|No .* host key is known' \
+            <<<"$output"; then
+            category=host-key-verification
+          elif grep -Eqi \
+            'Load key|invalid format|error in libcrypto' \
+            <<<"$output"; then
+            category=key-parsing
+          elif grep -Eqi \
+            'Permission denied \(publickey\)|no mutual signature algorithm|sign_and_send_pubkey' \
+            <<<"$output"; then
+            category=authentication
+          elif grep -Fq \
+            'Only the portfolio deployment command is allowed.' \
+            <<<"$output"; then
+            category=forced-command-rejection
+          else
+            category=unclassified
+          fi
+
+          echo "ssh_failure_category=$category"
+          echo "connectivity_test=failure"
+          exit 1
