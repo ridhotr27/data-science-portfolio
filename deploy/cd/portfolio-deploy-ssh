@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+set -f
+
+readonly DEPLOY_COMMAND="${SSH_ORIGINAL_COMMAND:-}"
+read -r -a parts <<< "$DEPLOY_COMMAND"
+
+if [[ ${#parts[@]} -ne 3 || "${parts[0]}" != "deploy" ]]; then
+  printf 'Only the portfolio deployment command is allowed.\n' >&2
+  exit 64
+fi
+
+exec sudo -n /usr/local/sbin/portfolio-deploy "${parts[1]}" "${parts[2]}"

@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly APP_DIR="/opt/ridho-portfolio"
+readonly ENV_FILE="$APP_DIR/.env.production"
+readonly PREVIOUS_ENV="$APP_DIR/.env.production.previous"
+readonly COMPOSE_FILE="$APP_DIR/docker-compose.prod.yml"
+readonly LOCK_FILE="/run/lock/ridho-portfolio-deploy.lock"
+readonly FRONTEND_PREFIX="ghcr.io/ridhotr27/data-science-portfolio-frontend@sha256:"
+readonly BACKEND_PREFIX="ghcr.io/ridhotr27/data-science-portfolio-backend@sha256:"
+
+log() {
+  printf '[portfolio-deploy] %s\n' "$*"
+}
+
+fail() {
+  printf '[portfolio-deploy] ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+validate_ref() {
+  local ref="$1"
+  local prefix="$2"
+  local digest
+
+  [[ "$ref" == "$prefix"* ]] || fail "invalid or unauthorized image reference"
+  digest="${ref#"$prefix"}"
+  [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || fail "invalid or unauthorized image digest"
+}
+
+compose() {
+  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+}
+
+write_candidate_env() {
+  local source_file="$1"
+  local target_file="$2"
+  local frontend_ref="$3"
+  local backend_ref="$4"
+
+  awk -v frontend="$frontend_ref" -v backend="$backend_ref" '
+    /^FRONTEND_IMAGE=/ {print "FRONTEND_IMAGE=" frontend; seen_frontend=1; next}
+    /^BACKEND_IMAGE=/ {print "BACKEND_IMAGE=" backend; seen_backend=1; next}
+    {print}
+    END {if (!seen_frontend || !seen_backend) exit 42}
+  ' "$source_file" > "$target_file"
+}
+
+verify_application() {
+  local service cid health
+
+  for service in frontend backend; do
+    cid="$(compose ps -q "$service")" || return 1
+    [[ -n "$cid" ]] || return 1
+    health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$cid")" || return 1
+    [[ "$health" == "healthy" ]] || return 1
+  done
+
+  curl --noproxy '*' --fail --silent --show-error \
+    --retry 6 --retry-all-errors --retry-delay 5 --max-time 15 \
+    --resolve ridhotrivo.com:443:127.0.0.1 \
+    https://ridhotrivo.com/ >/dev/null || return 1
+
+  curl --noproxy '*' --fail --silent --show-error \
+    --retry 6 --retry-all-errors --retry-delay 5 --max-time 15 \
+    --resolve ridhotrivo.com:443:127.0.0.1 \
+    https://ridhotrivo.com/api/health | grep -q '"status":"ok"' || return 1
+}
+
+activate_refs() {
+  local frontend_ref="$1"
+  local backend_ref="$2"
+  local candidate
+
+  candidate="$(mktemp "$APP_DIR/.env.production.next.XXXXXX")" || return 1
+  chmod 0600 "$candidate" || return 1
+
+  if ! write_candidate_env "$ENV_FILE" "$candidate" "$frontend_ref" "$backend_ref"; then
+    rm -f "$candidate"
+    return 1
+  fi
+  if ! install -o root -g root -m 0600 "$candidate" "$ENV_FILE"; then
+    rm -f "$candidate"
+    return 1
+  fi
+  rm -f "$candidate" || return 1
+  compose config --quiet || return 1
+  compose up -d --no-build --wait --wait-timeout 180 frontend backend || return 1
+  verify_application || return 1
+}
+
+rollback() {
+  [[ -f "$PREVIOUS_ENV" ]] || {
+    log "no previous environment file is available for rollback"
+    return 1
+  }
+
+  log "restoring previously verified image references"
+  install -o root -g root -m 0600 "$PREVIOUS_ENV" "$ENV_FILE" || return 1
+  compose config --quiet || return 1
+  compose up -d --no-build --wait --wait-timeout 180 frontend backend || return 1
+  verify_application || return 1
+  log "rollback succeeded"
+}
+
+main() {
+  [[ $# -eq 2 ]] || fail "usage: portfolio-deploy FRONTEND_REF BACKEND_REF"
+
+  local frontend_ref="$1"
+  local backend_ref="$2"
+
+  validate_ref "$frontend_ref" "$FRONTEND_PREFIX"
+  validate_ref "$backend_ref" "$BACKEND_PREFIX"
+  [[ -f "$ENV_FILE" && -f "$COMPOSE_FILE" ]] || fail "production configuration is missing"
+
+  exec 9>"$LOCK_FILE"
+  flock -n 9 || fail "another deployment is already running"
+
+  compose config --quiet
+  verify_application || fail "current production stack is not healthy; refusing deployment"
+
+  log "pulling exact image digests"
+  docker pull "$frontend_ref"
+  docker pull "$backend_ref"
+
+  install -o root -g root -m 0600 "$ENV_FILE" "$PREVIOUS_ENV"
+
+  if activate_refs "$frontend_ref" "$backend_ref"; then
+    log "deployment succeeded"
+    log "frontend=$frontend_ref"
+    log "backend=$backend_ref"
+    return 0
+  fi
+
+  log "deployment failed; starting automatic rollback"
+  if rollback; then
+    return 1
+  fi
+
+  fail "deployment and rollback both failed; manual intervention required"
+}
+
+main "$@"

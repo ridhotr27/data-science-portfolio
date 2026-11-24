@@ -10,7 +10,10 @@ services:
   frontend:
     image: ${FRONTEND_IMAGE:?Set FRONTEND_IMAGE in .env.production}
     restart: unless-stopped
-    networks: [app]
+    networks:
+      app:
+      edge:
+        aliases: [portfolio-frontend]
     expose: ["8080"]
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/healthz"]
@@ -20,6 +23,7 @@ services:
       start_period: 10s
     cpus: "0.25"
     mem_limit: 128m
+    pids_limit: 64
     read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1777
@@ -31,7 +35,10 @@ services:
   backend:
     image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE in .env.production}
     restart: unless-stopped
-    networks: [app]
+    networks:
+      app:
+      edge:
+        aliases: [portfolio-backend]
     expose: ["8000"]
     environment:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?Set ALLOWED_ORIGINS}
@@ -41,48 +48,22 @@ services:
       UPLOAD_RATE_LIMIT: ${UPLOAD_RATE_LIMIT:-20}
       UPLOAD_RATE_WINDOW_SECONDS: ${UPLOAD_RATE_WINDOW_SECONDS:-60}
       ENABLE_XGBOOST: "false"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
-    cpus: "2.0"
-    mem_limit: 1536m
+    cpus: "1.50"
+    mem_limit: 1408m
+    pids_limit: 256
     read_only: true
     tmpfs:
       - /tmp:size=256m,mode=1777
-    security_opt: ["no-new-privileges:true"]
-    logging: *default-logging
-
-  caddy:
-    image: caddy:2.8-alpine
-    restart: unless-stopped
-    depends_on:
-      frontend:
-        condition: service_healthy
-      backend:
-        condition: service_healthy
-    networks: [app, edge]
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    environment:
-      DOMAIN: ${DOMAIN:?Set DOMAIN}
-      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL}
-    volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    healthcheck:
-      test: ["CMD", "caddy", "validate", "--config", "/etc/caddy/Caddyfile"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-    cpus: "0.25"
-    mem_limit: 128m
     security_opt: ["no-new-privileges:true"]
     logging: *default-logging
 
@@ -91,8 +72,5 @@ networks:
     driver: bridge
     internal: true
   edge:
-    driver: bridge
-
-volumes:
-  caddy_data:
-  caddy_config:
+    external: true
+    name: caddy_edge

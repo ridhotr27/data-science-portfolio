@@ -77,7 +77,9 @@ xgboost_status="$(curl --silent --show-error --output "$test_dir/xgboost.json" -
 expect_status 503 "$xgboost_status" "disabled XGBoost endpoint"
 
 dd if=/dev/zero of="$test_dir/oversized.csv" bs=1m count=7 2>/dev/null
-oversized_status="$(curl --silent --show-error --output "$test_dir/oversized.json" --write-out '%{http_code}' --form "file=@$test_dir/oversized.csv;type=text/csv" "$base_url/api/datasets/upload")"
+# HTTP/2 peers may reset an oversized stream before curl can report the 413.
+# HTTP/1.1 makes the proxy's rejection status deterministic in local and live checks.
+oversized_status="$(curl --http1.1 --silent --show-error --output "$test_dir/oversized.json" --write-out '%{http_code}' --form "file=@$test_dir/oversized.csv;type=text/csv" "$base_url/api/datasets/upload")"
 expect_status 413 "$oversized_status" "reverse-proxy request-body limit"
 
 echo "All local Docker integration checks passed."

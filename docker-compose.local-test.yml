@@ -10,7 +10,10 @@ services:
   frontend:
     image: ridho-portfolio-frontend:integration
     restart: unless-stopped
-    networks: [app]
+    networks:
+      app:
+      edge:
+        aliases: [portfolio-frontend]
     expose: ["8080"]
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/healthz"]
@@ -31,7 +34,10 @@ services:
   backend:
     image: ridho-portfolio-backend:integration
     restart: unless-stopped
-    networks: [app]
+    networks:
+      app:
+      edge:
+        aliases: [portfolio-backend]
     expose: ["8000"]
     environment:
       ALLOWED_ORIGINS: http://localhost:8088
@@ -41,14 +47,19 @@ services:
       UPLOAD_RATE_LIMIT: "20"
       UPLOAD_RATE_WINDOW_SECONDS: "60"
       ENABLE_XGBOOST: "false"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
       interval: 5s
       timeout: 3s
       retries: 5
       start_period: 10s
-    cpus: "2.0"
-    mem_limit: 1536m
+    cpus: "1.50"
+    mem_limit: 1408m
+    pids_limit: 256
     read_only: true
     tmpfs:
       - /tmp:size=256m,mode=1777
@@ -56,14 +67,14 @@ services:
     logging: *default-logging
 
   caddy:
-    image: caddy:2.8-alpine
+    image: caddy:2.11.9-alpine
     restart: unless-stopped
     depends_on:
       frontend:
         condition: service_healthy
       backend:
         condition: service_healthy
-    networks: [app, edge]
+    networks: [edge]
     ports:
       - "127.0.0.1:8088:8088"
     volumes:

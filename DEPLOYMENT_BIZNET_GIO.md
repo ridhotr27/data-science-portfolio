@@ -1,219 +1,161 @@
-# Biznet Gio Deployment Runbook
+# Biznet Gio Production Deployment
 
-> **Deployment status: disabled.** GitHub Actions tests the application and publishes images to GitHub Container Registry (GHCR), but it does not connect to, provision, or update a Biznet Gio VPS. The instructions below are retained for a future, separately approved manual deployment.
+This runbook deploys the Data Science Portfolio behind one standalone Caddy edge proxy. It does not deploy or route Indonesia Wildfire Intelligence.
 
-## Current automation boundary
+For the disabled-by-default automatic deployment design, restricted identity, GitHub settings, and activation checklist, see `CI_CD_DEPLOYMENT.md`.
 
-On pushes to `main`, `.github/workflows/ci.yml`:
-
-1. runs the FastAPI test suite;
-2. builds the React/Vite frontend;
-3. builds the production frontend and backend images;
-4. publishes commit-SHA and `latest` tags to GHCR.
-
-It intentionally has no deployment job, GitHub environment, SSH key, VPS address, production domain, remote Docker command, or public health check. A successful workflow run means the code and images passed CI; it does not mean production was deployed.
-
-Published image names:
+## Architecture
 
 ```text
-ghcr.io/ridhotr27/data-science-portfolio-frontend:<commit-sha>
-ghcr.io/ridhotr27/data-science-portfolio-backend:<commit-sha>
+Internet :80/:443
+        |
+  shared-edge/caddy
+        | caddy_edge (external Docker network)
+        +-- portfolio-frontend:8080
+        +-- portfolio-backend:8000 (/api/* only)
+
+ridho-portfolio/app (internal Docker network)
+        +-- frontend
+        +-- backend
 ```
 
-Use immutable commit-SHA tags for any future deployment. The `latest` aliases are convenient for inspection but should not be used as rollback references.
+Only Caddy publishes host ports. `8080` and `8000` are Docker-network ports and must never be published. Future projects may join `caddy_edge` with unique aliases and receive their own Caddy site blocks.
 
-## Recommended future VPS specification
-
-- Ubuntu 22.04 LTS or 24.04 LTS
-- 2 vCPU
-- 4 GB RAM
-- 30 GB SSD
-- Public IPv4 address
-
-The backend is limited to one worker because dataset sessions are process-local. Uploaded datasets and cached results remain in memory and disappear whenever the backend restarts.
-
-## Server preparation
-
-These steps are **not authorized by the current GitHub Actions workflow** and must be run manually only after a separate deployment approval.
-
-```bash
-sudo apt update
-sudo apt upgrade -y
-sudo adduser deploy
-sudo usermod -aG sudo deploy
-```
-
-Configure and test key-based SSH access before disabling password authentication. Recommended SSH policy:
+## Files on the VPS
 
 ```text
-PermitRootLogin no
-PasswordAuthentication no
-PubkeyAuthentication yes
-```
+/opt/shared-edge/
+├── .env.proxy
+├── docker-compose.proxy.yml
+└── deploy/Caddyfile
 
-Validate before reloading:
-
-```bash
-sudo sshd -t
-sudo systemctl reload ssh
-```
-
-## Firewall and DNS
-
-Allow SSH before enabling UFW, then expose only the reverse proxy:
-
-```bash
-sudo ufw allow OpenSSH
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw allow 443/udp
-sudo ufw enable
-sudo ufw status verbose
-```
-
-Apply equivalent Biznet Gio firewall rules. Never expose backend port 8000 or frontend port 8080. Create a domain `A` record pointing to the VPS; add `AAAA` only when IPv6 is correctly routed.
-
-## Docker installation
-
-Use Docker's official Ubuntu repository:
-
-```bash
-sudo apt update
-sudo apt install -y ca-certificates curl
-sudo install -m 0755 -d /etc/apt/keyrings
-sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-sudo chmod a+r /etc/apt/keyrings/docker.asc
-
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo \"$VERSION_CODENAME\") stable" \
-  | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
-
-sudo apt update
-sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-sudo systemctl enable --now docker
-sudo usermod -aG docker deploy
-```
-
-Membership in the `docker` group is effectively root-level access. Restrict the deployment account and its SSH keys.
-
-## Deployment directory
-
-```bash
-sudo install -d -o deploy -g deploy -m 700 /opt/ridho-portfolio
-sudo install -d -o deploy -g deploy -m 700 /opt/ridho-portfolio/deploy
-```
-
-The server requires only:
-
-```text
 /opt/ridho-portfolio/
 ├── .env.production
-├── docker-compose.prod.yml
-└── deploy/Caddyfile
+└── docker-compose.prod.yml
 ```
 
-## GHCR access
+Protect both environment files with mode `600`. `.env.proxy` contains the ACME contact email; `.env.production` contains image references and runtime settings. Neither file belongs in Git.
 
-The images may initially be private even when the source repository is public. Either make each GHCR package public in GitHub package settings or authenticate the VPS with a fine-grained/read-only credential that can read packages. Do not reuse `GITHUB_TOKEN` outside GitHub Actions.
+## DNS prerequisites
 
-Authenticate interactively without placing a token in shell history:
+Create these records at the authoritative DNS provider:
+
+| Type | Name/Host | Value | Purpose |
+|---|---|---|---|
+| A | `@` | `139.190.108.107` | Portfolio apex |
+| CNAME | `www` | `ridhotrivo.com` | Redirect hostname |
+
+Do not create a `wildfire` record yet. Do not add an `AAAA` record unless the VPS has verified public IPv6 routing. Remove conflicting apex or `www` A/AAAA/CNAME records. Use the provider's default TTL (or 300 seconds during rollout).
+
+Verify before starting Caddy:
 
 ```bash
-export CR_PAT='REPLACE_WITH_READ_PACKAGES_TOKEN'
-printf '%s' "$CR_PAT" | docker login ghcr.io --username ridhotr27 --password-stdin
-unset CR_PAT
+dig +short A ridhotrivo.com
+dig +short A www.ridhotrivo.com
+dig +short AAAA ridhotrivo.com
+dig +short AAAA www.ridhotrivo.com
 ```
 
-Review and rotate registry credentials periodically. Never store a token in `.env.production`.
+Both A lookups must ultimately resolve to `139.190.108.107`; AAAA lookups should be empty unless IPv6 is intentionally configured.
 
-## Production environment
+## Image policy and GHCR access
 
-Copy `.env.production.example` to `.env.production` on the server, then replace the domain, email, and `COMMIT_SHA` placeholders:
-
-```dotenv
-DOMAIN=portfolio.example.com
-ACME_EMAIL=admin@example.com
-FRONTEND_IMAGE=ghcr.io/ridhotr27/data-science-portfolio-frontend:COMMIT_SHA
-BACKEND_IMAGE=ghcr.io/ridhotr27/data-science-portfolio-backend:COMMIT_SHA
-ALLOWED_ORIGINS=https://portfolio.example.com
-DATASET_TTL_SECONDS=900
-MAX_DATASET_SESSIONS=3
-UPLOAD_RATE_LIMIT=20
-UPLOAD_RATE_WINDOW_SECONDS=60
-ENABLE_XGBOOST=false
-VITE_ENABLE_XGBOOST=false
-```
-
-Protect the file:
+Use the exact commit-SHA and digest references in `.env.production.example`, never `latest`. Confirm the resolved image digests after pulling:
 
 ```bash
-chmod 600 /opt/ridho-portfolio/.env.production
+sudo docker image inspect --format '{{index .RepoDigests 0}}' "$FRONTEND_IMAGE"
+sudo docker image inspect --format '{{index .RepoDigests 0}}' "$BACKEND_IMAGE"
 ```
 
-## Future manual deployment
+If the GHCR packages are public, no registry login is required. If they are private, authenticate using a dedicated read-only package token through `--password-stdin`; never store it in either environment file.
 
-No part of this procedure is run by GitHub Actions:
+## Pre-deployment validation
+
+From the repository checkout or a staging directory:
+
+```bash
+docker compose --env-file .env.proxy.example -f docker-compose.proxy.yml config --quiet
+docker compose --env-file .env.production.example -f docker-compose.prod.yml config --quiet
+docker run --rm -e ACME_EMAIL=admin@example.com \
+  -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+  caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0 \
+  caddy validate --config /etc/caddy/Caddyfile
+```
+
+## First deployment
+
+These commands are production changes and require explicit approval:
+
+```bash
+sudo docker network create caddy_edge
+
+cd /opt/ridho-portfolio
+sudo docker compose --env-file .env.production -f docker-compose.prod.yml pull
+sudo docker compose --env-file .env.production -f docker-compose.prod.yml up -d --no-build
+sudo docker compose --env-file .env.production -f docker-compose.prod.yml ps
+
+cd /opt/shared-edge
+sudo docker compose --env-file .env.proxy -f docker-compose.proxy.yml pull
+sudo docker compose --env-file .env.proxy -f docker-compose.proxy.yml up -d --no-build
+sudo docker compose --env-file .env.proxy -f docker-compose.proxy.yml ps
+```
+
+Start the Portfolio first so Caddy can resolve both upstream aliases when it loads the configuration.
+
+## Acceptance checks
+
+```bash
+curl -fsS https://ridhotrivo.com/
+curl -fsS https://ridhotrivo.com/api/health
+curl -sS -o /dev/null -D - https://www.ridhotrivo.com/example
+sudo docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+sudo docker stats --no-stream
+sudo ss -lntup
+```
+
+Confirm that:
+
+- `www` redirects permanently to the same path on `https://ridhotrivo.com`;
+- frontend and backend health checks pass;
+- only Caddy publishes `80/tcp`, `443/tcp`, and `443/udp`;
+- backend `8000` and frontend `8080` are not host listeners;
+- containers return after a controlled Docker service restart;
+- memory, CPU, PIDs, logs, and restart counts remain within limits.
+
+Uploaded datasets are in memory and disappear on backend restart or replacement.
+
+## Update and rollback
+
+Before an update, record the active image values and copy the protected environment file:
 
 ```bash
 cd /opt/ridho-portfolio
-docker compose --env-file .env.production -f docker-compose.prod.yml config
-docker compose --env-file .env.production -f docker-compose.prod.yml pull
-docker compose --env-file .env.production -f docker-compose.prod.yml up -d --no-build --remove-orphans
-docker compose --env-file .env.production -f docker-compose.prod.yml ps
+cp -p .env.production .env.production.previous
+sudo docker compose --env-file .env.production -f docker-compose.prod.yml config --images
 ```
 
-Caddy requests and renews HTTPS certificates after DNS and ports 80/443 are correct. Verify manually:
+Set both images to the new tested commit SHA, then:
 
 ```bash
-curl -fsS https://portfolio.example.com/
-curl -fsS https://portfolio.example.com/api/health
+sudo docker compose --env-file .env.production -f docker-compose.prod.yml pull
+sudo docker compose --env-file .env.production -f docker-compose.prod.yml up -d --no-build
 ```
 
-## Logs and health
+To roll back, restore the previous image references (or `.env.production.previous`) and recreate the application containers:
 
 ```bash
-docker compose --env-file .env.production -f docker-compose.prod.yml ps
-docker compose --env-file .env.production -f docker-compose.prod.yml logs --tail=200
-docker stats --no-stream
+cp -p .env.production.previous .env.production
+sudo docker compose --env-file .env.production -f docker-compose.prod.yml up -d --no-build
 ```
 
-Compose health checks cover Nginx, FastAPI, and Caddy configuration validity. They do not replace external availability monitoring. Caddy rejects request bodies above 6 MB; FastAPI separately enforces the 5 MB dataset limit and bounded session capacity.
+Do not run `down -v`: Caddy certificate state lives in named volumes. An application rollback cannot restore in-memory datasets.
 
-## Manual update and rollback
+For a Caddy configuration change, validate the candidate first, keep the previous `Caddyfile`, and recreate only the Caddy service. If acceptance fails, restore the previous file and recreate Caddy again.
 
-Before an update, save the active environment file:
+## Troubleshooting boundaries
 
-```bash
-cp .env.production .env.production.previous
-chmod 600 .env.production.previous
-```
-
-Set both image references to the new commit SHA, then run `docker compose pull` and `up -d`. To roll back, restore `.env.production.previous` or set both references to a known-good SHA and repeat those commands.
-
-Rollback restores container versions only. It cannot restore in-memory datasets lost during container replacement.
-
-## Troubleshooting
-
-- **Certificate failure:** verify DNS, Biznet firewall, UFW, and Caddy logs.
-- **Registry pull denied:** verify GHCR package visibility or the token's `read:packages` access.
-- **API 502:** inspect backend health and OOM state; confirm the image supports the VPS architecture.
-- **CORS error:** ensure `ALLOWED_ORIGINS` exactly equals the public HTTPS origin without a trailing slash.
-- **SPA 404:** verify Caddy routes non-API requests to `frontend:8080` and the Nginx SPA fallback is present.
-- **Session disappeared:** this is expected after expiration, restart, update, or capacity pressure.
-
-## Enablement checklist for a future deployment
-
-- [ ] Separate deployment approval completed
-- [ ] VPS provisioned and patched
-- [ ] SSH access and host fingerprints verified
-- [ ] UFW and provider firewall reviewed
-- [ ] DNS resolves to the VPS
-- [ ] Docker Engine and Compose installed
-- [ ] GHCR package visibility or read-only authentication configured
-- [ ] Exact commit-SHA image references selected
-- [ ] Production environment file reviewed and protected
-- [ ] Compose configuration validated on the VPS
-- [ ] Manual rollback tested
-- [ ] External uptime monitoring configured
-- [ ] Only non-confidential acceptance-test data used
-
-Until every applicable item is complete, Biznet Gio deployment remains disabled.
+- Certificate failure: verify A/CNAME resolution, public reachability of TCP 80/443, and Caddy logs.
+- GHCR pull denial: verify package visibility or read-only `read:packages` authentication.
+- API 502: inspect backend health/OOM state and shared-network membership.
+- CORS failure: `ALLOWED_ORIGINS` must be exactly `https://ridhotrivo.com`.
+- Never publish `8000` or `8080` as a workaround.

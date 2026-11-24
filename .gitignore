@@ -4,6 +4,7 @@ dist/
 .env.*
 !.env.example
 !.env.production.example
+!.env.proxy.example
 .env.production
 backend/.env
 backend/.env.*
@@ -23,5 +24,9 @@ htmlcov/
 *.key
 *.p12
 *.pfx
+.ssh/
+id_rsa*
+id_ed25519*
+portfolio_github_actions*
 gitlab-portfolio-deploy
 gitlab-portfolio-deploy.pub

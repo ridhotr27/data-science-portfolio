@@ -2,7 +2,7 @@
 
 A personal Data Science and Data Engineering portfolio built with React and FastAPI. It presents selected work and includes two interactive, server-backed analytics applications for exploring tabular and customer transaction data.
 
-> Production deployment configuration is included, but this repository does not claim that a live production deployment currently exists.
+The portfolio is deployed at [ridhotrivo.com](https://ridhotrivo.com). Automatic deployment is implemented as an approval-gated, disabled-by-default workflow; CI and immutable GHCR publishing remain active independently.
 
 ## Project overview
 
@@ -58,10 +58,12 @@ Dependency versions are pinned in `backend/requirements.txt` and locked in `pack
 ├── scripts/docker_integration_test.sh # End-to-end local container checks
 ├── sample_data/                 # Anonymized Customer 360 demonstration CSV
 ├── Dockerfile.frontend          # Multi-stage Vite/Nginx image
-├── docker-compose.prod.yml      # Production frontend/backend/Caddy stack
-├── .github/workflows/ci.yml     # Tests, builds, and GHCR publishing
+├── docker-compose.prod.yml      # Production frontend/backend application stack
+├── docker-compose.proxy.yml     # Standalone shared Caddy edge proxy
+├── .github/workflows/ci.yml     # Tests, immutable GHCR publishing, gated CD
 ├── .env.production.example      # Production configuration template
 ├── DEPLOYMENT_BIZNET_GIO.md     # Complete VPS deployment runbook
+├── CI_CD_DEPLOYMENT.md          # Least-privilege CD design and activation
 └── PROJECT_TECHNICAL_OVERVIEW.md
 ```
 
@@ -131,13 +133,18 @@ docker build -f Dockerfile.frontend -t ridho-portfolio-frontend:local .
 docker build -f backend/Dockerfile -t ridho-portfolio-backend:local backend
 ```
 
-For an actual domain, copy and edit the production template, set image references to available local or registry tags, then start the stack:
+For production, copy and edit both environment templates, create the shared edge network, then start the application and standalone proxy stacks:
 
 ```bash
 cp .env.production.example .env.production
+cp .env.proxy.example .env.proxy
+docker network create caddy_edge
 docker compose --env-file .env.production -f docker-compose.prod.yml config
 docker compose --env-file .env.production -f docker-compose.prod.yml pull
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --no-build
+docker compose --env-file .env.proxy -f docker-compose.proxy.yml config
+docker compose --env-file .env.proxy -f docker-compose.proxy.yml pull
+docker compose --env-file .env.proxy -f docker-compose.proxy.yml up -d --no-build
 ```
 
 Operational commands:
@@ -149,9 +156,9 @@ docker compose --env-file .env.production -f docker-compose.prod.yml restart
 docker compose --env-file .env.production -f docker-compose.prod.yml down
 ```
 
-Only Caddy publishes ports 80 and 443. Frontend and backend communicate on a private Docker network. Caddy obtains and renews HTTPS certificates automatically after DNS and firewall configuration are correct.
+Only the standalone Caddy project publishes ports 80 and 443. Frontend and backend have no host port mappings; Caddy reaches them through the shared `caddy_edge` network. Caddy obtains and renews HTTPS certificates automatically after DNS and firewall configuration are correct.
 
-See [DEPLOYMENT_BIZNET_GIO.md](DEPLOYMENT_BIZNET_GIO.md) for the currently disabled deployment posture and future manual deployment preparation.
+See [DEPLOYMENT_BIZNET_GIO.md](DEPLOYMENT_BIZNET_GIO.md) for manual operations and [CI_CD_DEPLOYMENT.md](CI_CD_DEPLOYMENT.md) for the disabled-by-default automatic deployment design.
 
 ## GitHub Actions and GHCR
 
@@ -159,9 +166,10 @@ See [DEPLOYMENT_BIZNET_GIO.md](DEPLOYMENT_BIZNET_GIO.md) for the currently disab
 
 1. **Backend tests:** install pinned Python dependencies and run Pytest on Python 3.12.
 2. **Frontend build:** install the npm lockfile and run the Vite production build on Node.js 20.
-3. **Container publishing:** after both checks pass on a push to `main`, build the frontend and backend images and publish commit-SHA and `latest` tags to GHCR.
+3. **Container publishing:** after both checks pass on a push to `main`, build the frontend and backend images and publish immutable commit-SHA tags to GHCR.
+4. **Gated deployment:** pass the resulting exact digests to a restricted VPS deployment identity only when `ENABLE_PRODUCTION_DEPLOY=true`.
 
-Images are published as `ghcr.io/ridhotr27/data-science-portfolio-frontend` and `ghcr.io/ridhotr27/data-science-portfolio-backend`. Publishing uses the repository-scoped `GITHUB_TOKEN`; no personal registry credential is required. The workflow contains no deployment job, SSH access, Biznet Gio credentials, or production environment. Pushing to `main` does **not** deploy the application.
+Images are published as `ghcr.io/ridhotr27/data-science-portfolio-frontend` and `ghcr.io/ridhotr27/data-science-portfolio-backend`. Publishing uses the repository-scoped `GITHUB_TOKEN`; no personal registry credential is required. Production secrets are environment-scoped and automatic deployment stays skipped until its activation variable is explicitly enabled.
 
 ## Testing and validation
 
@@ -176,6 +184,7 @@ npm run build
 
 # Production configuration
 docker compose --env-file .env.production.example -f docker-compose.prod.yml config
+docker compose --env-file .env.proxy.example -f docker-compose.proxy.yml config
 docker build -f Dockerfile.frontend -t ridho-portfolio-frontend:check .
 docker build -f backend/Dockerfile -t ridho-portfolio-backend:check backend
 ```

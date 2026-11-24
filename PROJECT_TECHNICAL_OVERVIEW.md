@@ -4,6 +4,8 @@
 **Audit scope:** Entire project repository
 **Method:** Implementation audit plus production-deployment preparation. Source, configuration, dependency locks, tests, and deployment manifests were treated as authoritative. No VPS, DNS, external service, or live production environment was changed.
 
+> **Operational update (2026-11-24):** The Portfolio is live at `https://ridhotrivo.com`. A least-privilege, digest-based automatic deployment workflow is implemented but remains disabled pending explicit activation. Statements below about deployment not being exercised describe the original 2026-11-23 audit boundary. The `www` hostname still has an authoritative DNS consistency issue and is not part of the CD health gate.
+
 ## 1. Executive Summary
 
 This repository is a personal data-science portfolio implemented as a browser application with three working local analytics tools:
