@@ -1,0 +1,64 @@
+name: Production SSH Connectivity Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  connectivity:
+    name: Verify restricted production SSH
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    env:
+      DEPLOY_HOST: ${{ vars.PROD_SSH_HOST }}
+      DEPLOY_PORT: ${{ vars.PROD_SSH_PORT || '22' }}
+      DEPLOY_USER: ${{ vars.PROD_SSH_USER }}
+      DEPLOY_ENABLED: ${{ vars.ENABLE_PRODUCTION_DEPLOY }}
+
+    steps:
+      - name: Verify deployment remains disabled
+        run: |
+          set -euo pipefail
+          test "$DEPLOY_ENABLED" = "false"
+
+      - name: Configure restricted SSH client
+        env:
+          DEPLOY_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+          DEPLOY_HOST_KEYS: ${{ secrets.PROD_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_PORT"
+          test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_KEY"
+          test -n "$DEPLOY_HOST_KEYS"
+          install -d -m 0700 "$HOME/.ssh"
+          install -m 0600 /dev/null "$HOME/.ssh/portfolio_deploy"
+          printf '%s\n' "$DEPLOY_KEY" > "$HOME/.ssh/portfolio_deploy"
+          install -m 0600 /dev/null "$HOME/.ssh/known_hosts"
+          printf '%s\n' "$DEPLOY_HOST_KEYS" > "$HOME/.ssh/known_hosts"
+
+      - name: Verify forced-command connectivity
+        run: |
+          set -euo pipefail
+          set +e
+          output="$(
+            ssh -T \
+              -p "$DEPLOY_PORT" \
+              -i "$HOME/.ssh/portfolio_deploy" \
+              -o BatchMode=yes \
+              -o IdentitiesOnly=yes \
+              -o PreferredAuthentications=publickey \
+              -o PasswordAuthentication=no \
+              -o KbdInteractiveAuthentication=no \
+              -o StrictHostKeyChecking=yes \
+              "$DEPLOY_USER@$DEPLOY_HOST" 2>&1
+          )"
+          status=$?
+          set -e
+
+          test "$status" -eq 64
+          test "$output" = "Only the portfolio deployment command is allowed."
