@@ -1,0 +1,87 @@
+name: Manual Production Digest Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      frontend_ref:
+        description: Immutable frontend GHCR digest reference
+        required: true
+        type: string
+      backend_ref:
+        description: Immutable backend GHCR digest reference
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy exact digests to production
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    concurrency:
+      group: production-ridhotrivo
+      cancel-in-progress: false
+    env:
+      FRONTEND_REF: ${{ inputs.frontend_ref }}
+      BACKEND_REF: ${{ inputs.backend_ref }}
+      DEPLOY_HOST: ${{ vars.PROD_SSH_HOST }}
+      DEPLOY_PORT: ${{ vars.PROD_SSH_PORT || '22' }}
+      DEPLOY_USER: ${{ vars.PROD_SSH_USER }}
+      DEPLOY_ENABLED: ${{ vars.ENABLE_PRODUCTION_DEPLOY }}
+
+    steps:
+      - name: Require controlled deployment configuration
+        env:
+          DEPLOY_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+          DEPLOY_HOST_KEYS: ${{ secrets.PROD_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$DEPLOY_ENABLED" = "false"
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_PORT"
+          test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_KEY"
+          test -n "$DEPLOY_HOST_KEYS"
+          [[ "$FRONTEND_REF" =~ ^ghcr\.io/ridhotr27/data-science-portfolio-frontend@sha256:[0-9a-f]{64}$ ]]
+          [[ "$BACKEND_REF" =~ ^ghcr\.io/ridhotr27/data-science-portfolio-backend@sha256:[0-9a-f]{64}$ ]]
+
+      - name: Configure restricted SSH client
+        env:
+          DEPLOY_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+          DEPLOY_HOST_KEYS: ${{ secrets.PROD_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 "$HOME/.ssh"
+          install -m 0600 /dev/null "$HOME/.ssh/portfolio_deploy"
+          printf '%s\n' "$DEPLOY_KEY" > "$HOME/.ssh/portfolio_deploy"
+          install -m 0600 /dev/null "$HOME/.ssh/known_hosts"
+          printf '%s\n' "$DEPLOY_HOST_KEYS" > "$HOME/.ssh/known_hosts"
+
+      - name: Deploy frontend and backend digests
+        run: |
+          set -euo pipefail
+          ssh \
+            -p "$DEPLOY_PORT" \
+            -i "$HOME/.ssh/portfolio_deploy" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o PreferredAuthentications=publickey \
+            -o PasswordAuthentication=no \
+            -o KbdInteractiveAuthentication=no \
+            -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            deploy "$FRONTEND_REF" "$BACKEND_REF"
+
+      - name: Verify public apex health
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            --retry 6 --retry-all-errors --retry-delay 5 \
+            --max-time 15 https://ridhotrivo.com/
+          curl --fail --silent --show-error \
+            --retry 6 --retry-all-errors --retry-delay 5 \
+            --max-time 15 https://ridhotrivo.com/api/health
