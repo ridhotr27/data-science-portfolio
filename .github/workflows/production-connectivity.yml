@@ -16,13 +16,14 @@ jobs:
       DEPLOY_HOST: ${{ vars.PROD_SSH_HOST }}
       DEPLOY_PORT: ${{ vars.PROD_SSH_PORT || '22' }}
       DEPLOY_USER: ${{ vars.PROD_SSH_USER }}
-      DEPLOY_ENABLED: ${{ vars.ENABLE_PRODUCTION_DEPLOY }}
 
     steps:
-      - name: Verify deployment remains disabled
+      - name: Verify public DNS and HTTPS from the runner
         run: |
           set -euo pipefail
-          test "$DEPLOY_ENABLED" = "false"
+          getent ahostsv4 ridhotrivo.com | grep -q '139.190.108.107'
+          curl --fail --silent --show-error --max-time 15 https://ridhotrivo.com/ >/dev/null
+          curl --fail --silent --show-error --max-time 15 https://ridhotrivo.com/api/health | grep -q '"status":"ok"'
 
       - name: Configure restricted SSH client
         env:

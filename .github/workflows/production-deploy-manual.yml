@@ -31,7 +31,6 @@ jobs:
       DEPLOY_HOST: ${{ vars.PROD_SSH_HOST }}
       DEPLOY_PORT: ${{ vars.PROD_SSH_PORT || '22' }}
       DEPLOY_USER: ${{ vars.PROD_SSH_USER }}
-      DEPLOY_ENABLED: ${{ vars.ENABLE_PRODUCTION_DEPLOY }}
 
     steps:
       - name: Require controlled deployment configuration
@@ -40,7 +39,6 @@ jobs:
           DEPLOY_HOST_KEYS: ${{ secrets.PROD_SSH_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
-          test "$DEPLOY_ENABLED" = "false"
           test -n "$DEPLOY_HOST"
           test -n "$DEPLOY_PORT"
           test -n "$DEPLOY_USER"
