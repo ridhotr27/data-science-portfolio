@@ -1,6 +1,6 @@
 # Portfolio CI/CD Design and Activation
 
-Automatic production deployment is implemented but disabled by default. CI and immutable image publishing run on pushes to `main`; the deployment job runs only when the repository variable `ENABLE_PRODUCTION_DEPLOY` is exactly `true`.
+Automatic production deployment is active. CI and immutable image publishing run on pushes to `main`; the deployment job runs only when the repository variable `ENABLE_PRODUCTION_DEPLOY` is exactly `true`. The production environment also restricts deployments to `main`. Set the repository variable to `false` to pause automatic deployments; the restricted manual digest workflow remains available for recovery.
 
 The unresolved `www.ridhotrivo.com` authoritative-DNS problem is intentionally outside the deployment health gate. CD verifies only the working apex origin, `https://ridhotrivo.com`.
 
